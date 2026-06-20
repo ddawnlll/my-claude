@@ -49,6 +49,7 @@ FORCE_INSTALL="0"
 DEEPSEEK_ONLY="0"
 SKIP_INSTALL="0"
 NO_UPDATE_SOURCE="0"
+FULL_INTEL="${FULL_INTEL:-1}"
 
 fail() { printf "\033[1;31mERROR:\033[0m %s\n" "$*" >&2; exit 1; }
 warn() { printf "\033[1;33mWARN:\033[0m %s\n" "$*" >&2; }
@@ -69,6 +70,9 @@ Options:
                         (default: $HOME/.local/src/oc-go-cc, env: OC_GO_CC_SOURCE_DIR)
   --branch NAME         Override git branch for the fork. (default: main, env: OC_GO_CC_REPO_BRANCH)
   --no-update-source    Do not git fetch/reset existing source checkout; just build current.
+  --full-intel          Install full intelligence pack (plugins, MCP, Tavily, commands).
+                        (default: enabled)
+  --skip-intel          Skip full intelligence pack installation.
   -h, --help            Show help.
 
 Source repo:
@@ -128,6 +132,14 @@ while [[ $# -gt 0 ]]; do
       NO_UPDATE_SOURCE="1"
       shift
       ;;
+    --full-intel)
+      FULL_INTEL="1"
+      shift
+      ;;
+    --skip-intel|--no-intel)
+      FULL_INTEL="0"
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -148,7 +160,7 @@ require_source_build_tools() {
   command -v go >/dev/null 2>&1   || fail "go is required to build oc-go-cc from source. Install Go (>= 1.22)."
 }
 
-mkdir -p "$INSTALL_DIR" "$OC_CONFIG_DIR" "$CLAUDE_DIR"
+mkdir -p "$INSTALL_DIR" "$OC_CONFIG_DIR" "$CLAUDE_DIR" "$HOME/.claude/commands" "$HOME/.claude/commands/community"
 
 install_oc_go_cc_from_source() {
   local target="$INSTALL_DIR/oc-go-cc"
@@ -567,7 +579,6 @@ env.update({
     "ANTHROPIC_AUTH_TOKEN": "unused",
     "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1",
     "CLAUDE_CODE_ALWAYS_ENABLE_EFFORT": "1",
-    "CLAUDE_CODE_EFFORT_LEVEL": "high",
     # Reduces beta endpoint incompatibility problems with some local proxies.
     "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
 })
@@ -936,11 +947,119 @@ for name, target_id in BUILTIN_MODEL_MAP.items():
 lines.append("")
 model_list_path.write_text("\n".join(lines) + "\n")
 
+# ── Intel Pack: slash commands ──────────────────────────────────────
+commands_dir = home / ".claude" / "commands"
+commands_dir.mkdir(parents=True, exist_ok=True)
+
+(commands_dir / "tech-radar.md").write_text("""\
+---
+description: AI, software engineering, developer tooling, and GitHub repository intelligence brief
+argument-hint: [optional focus, e.g. coding agents, Rust CLI tools, React, MCP, databases]
+---
+
+Use Tavily MCP first. Do not use built-in WebSearch for general search. Use GitHub MCP or gh CLI only when available and useful. Use WebFetch only for specific URLs after discovery.
+
+You are my Tech Radar Intelligence Agent.
+
+Mission:
+Produce a high-signal intelligence briefing for AI + software engineering + new GitHub projects.
+
+Default scope:
+- AI: frontier models, coding agents, Claude Code, OpenAI, Anthropic, Google DeepMind, xAI, Meta AI, open-source models, local LLMs, inference, evals, benchmarks, MCP, agent frameworks
+- Software engineering: TypeScript, React, TanStack, Electron, Bun, Node, Python, Rust, Go, databases, Postgres, SQLite, DX tools, CLIs, terminal tools, observability, testing, security, CI/CD
+- GitHub discovery: new or fast-growing repos, useful libraries, devtools, agent tools, MCP servers, UI kits, infra tools, model tooling, data tools
+
+User focus: $ARGUMENTS
+
+Research workflow:
+1. Search broadly with Tavily: latest AI news, latest software development news, GitHub trending, new repos, releases, changelogs, official blogs, Hacker News (secondary)
+2. For GitHub discovery: GitHub Trending, recently created repos, meaningful README/code, active issues/releases, avoid toy repos and SEO spam
+3. Extract important sources. Do not summarize headlines only. De-duplicate.
+4. Classify each item: Importance (Critical/High/Medium/Low), Category (AI/CodingAgent/DevTool/Library/Framework/Infra/Security/Research/Business), Maturity (Production-ready/Promising/Experimental/Hype/Avoid), Confidence (High/Medium/Low)
+
+Output in Turkish with sections: Executive Summary, Top AI Developments, Software Engineering/DevTool Developments, GitHub Repo Radar, Coding Agent/MCP Watch, Signal vs Noise, Action Items, Watchlist Queries For Next Run.
+
+Rules: Cite sources. Prefer primary sources. Be skeptical. Do not pad. Do not use generic hype language.
+""")
+
+(commands_dir / "repo-radar.md").write_text("""\
+---
+description: Discover high-signal new and trending GitHub repositories
+argument-hint: [topic/language/category]
+---
+
+Use Tavily MCP first. Use GitHub MCP or gh CLI when available. Do not use built-in WebSearch.
+
+Mission: Find genuinely useful new, trending, or fast-growing GitHub repositories for the requested topic.
+
+User focus: $ARGUMENTS
+
+Default focus: AI agents, coding agents, MCP servers, Claude Code tooling, local LLM tooling, TypeScript devtools, React/TanStack/Radix UI, Electron/Bun, Rust CLI tools, Go backend tools, Python data/ML tools, databases, observability, testing, security.
+
+Discovery queries: GitHub trending today/this week, topic-specific searches, recent releases/changelogs.
+
+For each candidate inspect README/source/release activity. Score: Usefulness 1-10, Novelty 1-10, Code quality signal 1-10, Maintenance/activity 1-10, Hype risk Low/Medium/High, Fit for my stack Low/Medium/High.
+
+Output sections: Top Picks (ranked table), Detailed Notes, Ignore/Low Signal, Install/Test Queue.
+""")
+
+(commands_dir / "dev-news.md").write_text("""\
+---
+description: Daily software development news and engineering trend brief
+argument-hint: [optional focus]
+---
+
+Use Tavily MCP first. Do not use built-in WebSearch.
+
+Create a concise but deep daily software engineering brief. Include: framework/library releases, language/runtime updates, security advisories, database/backend tooling, frontend/UI tooling, developer experience tools, GitHub projects worth tracking, AI tools only when they affect software development.
+
+User focus: $ARGUMENTS
+
+Output in Turkish with sections: Executive Summary, High-Impact Developer News, GitHub Projects Worth Watching, Security/Risk Notes, What I Should Test/Read/Install, What to Ignore, Watchlist for Next Run.
+
+Be skeptical, cite sources, avoid hype.
+""")
+
+# ── Intel Pack: routing policy for CLAUDE.md ─────────────────────────
+routing_block = '''\
+<!-- TECH_RADAR_ROUTING_START -->
+# Global intelligence routing policy
+
+For current information, web search, news, GitHub discovery, software trend monitoring, package/version lookup, benchmark lookup, and public source discovery:
+
+1. Use Tavily MCP first.
+2. Use Tavily search/extract/crawl/map/research skills when available.
+3. Use GitHub MCP or gh CLI for GitHub-specific repo/issue/release inspection when available.
+4. Do not use built-in WebSearch for general discovery.
+5. Use WebFetch only for specific URLs after discovery.
+6. Prefer primary sources: official docs, release notes, GitHub repos/releases/issues, arXiv/papers, vendor blogs.
+7. Treat community posts and SEO articles as secondary signal.
+8. For GitHub repo recommendations, evaluate usefulness, maintenance, code quality signal, novelty, and hype risk.
+9. Always separate signal from noise.
+10. Use Turkish by default.
+
+Preferred custom commands:
+- /tech-radar for AI + software + GitHub overall intelligence
+- /repo-radar for GitHub project discovery
+- /dev-news for software engineering daily brief
+<!-- TECH_RADAR_ROUTING_END -->
+'''
+
+upsert_managed_block(
+    claude_dir / "CLAUDE.md",
+    routing_block,
+    "<!-- TECH_RADAR_ROUTING_START -->",
+    "<!-- TECH_RADAR_ROUTING_END -->",
+)
+
 print("")
 print("WROTE:")
 print(f"  {oc_path}")
 print(f"  {claude_path}")
 print(f"  {model_list_path}")
+print(f"  {commands_dir / 'tech-radar.md'}")
+print(f"  {commands_dir / 'repo-radar.md'}")
+print(f"  {commands_dir / 'dev-news.md'}")
 print("")
 print("DISCOVERED/CONFIGURED MODELS:")
 for mid in model_ids:
@@ -975,7 +1094,6 @@ export ANTHROPIC_BASE_URL="http://127.0.0.1:3456"
 export ANTHROPIC_AUTH_TOKEN="unused"
 export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY="1"
 export CLAUDE_CODE_ALWAYS_ENABLE_EFFORT="1"
-export CLAUDE_CODE_EFFORT_LEVEL="high"
 export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS="1"
 
 # 5-slot model env vars (deterministic — do not rely on settings.json alone).
@@ -1018,7 +1136,6 @@ launchctl setenv ANTHROPIC_BASE_URL "http://127.0.0.1:3456"
 launchctl setenv ANTHROPIC_AUTH_TOKEN "unused"
 launchctl setenv CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY "1"
 launchctl setenv CLAUDE_CODE_ALWAYS_ENABLE_EFFORT "1"
-launchctl setenv CLAUDE_CODE_EFFORT_LEVEL "high"
 launchctl setenv CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS "1"
 
 osascript -e 'quit app "Claude"' 2>/dev/null || true
@@ -1149,6 +1266,95 @@ else
   warn "oc-go-cc is not in PATH yet. Run: source ~/.zshrc or export PATH=\"$INSTALL_DIR:\$PATH\""
 fi
 
+# ── Full Intel Pack ──────────────────────────────────────────────────
+if [[ "$FULL_INTEL" == "1" ]]; then
+
+TMPDIR_INTEL="$(mktemp -d)"
+trap 'rm -rf "$TMPDIR_INTEL"' EXIT
+
+info "Intel Pack: registering plugin marketplaces..."
+claude plugin marketplace add anthropics/claude-plugins-official 2>/dev/null || true
+claude plugin marketplace add VoltAgent/awesome-claude-code-subagents 2>/dev/null || true
+
+info "Intel Pack: installing official marketplace plugins..."
+OFFICIAL_DIR="$TMPDIR_INTEL/claude-plugins-official"
+if git clone --depth 1 https://github.com/anthropics/claude-plugins-official.git "$OFFICIAL_DIR" 2>/dev/null; then
+  for plugin_dir in "$OFFICIAL_DIR"/plugins/*/ "$OFFICIAL_DIR"/external_plugins/*/; do
+    [ -d "$plugin_dir" ] || continue
+    manifest="$plugin_dir.claude-plugin/plugin.json"
+    [ -f "$manifest" ] || continue
+    name="$(python3 -c "import json; print(json.load(open('$manifest')).get('name', ''))" 2>/dev/null)"
+    [ -z "$name" ] && name="$(basename "$plugin_dir")"
+    [ -z "$name" ] && continue
+    if ! claude plugin list 2>/dev/null | grep -Fq "$name"; then
+      yes | claude plugin install "${name}@claude-plugins-official" --scope user 2>/dev/null && \
+        claude plugin enable "${name}@claude-plugins-official" --scope user 2>/dev/null || true
+    fi
+  done
+  ok "Intel Pack: official plugins installed"
+else
+  warn "Intel Pack: could not clone plugin marketplace (skipping)"
+fi
+
+info "Intel Pack: installing Tavily MCP..."
+if ! claude mcp list 2>/dev/null | grep -iq "tavily"; then
+  claude mcp add tavily-remote-mcp --scope user --transport http https://mcp.tavily.com/mcp/ 2>/dev/null && \
+    ok "Intel Pack: Tavily MCP added" || \
+    warn "Intel Pack: Tavily MCP failed (may need manual auth)"
+fi
+
+if ! command -v tvly >/dev/null 2>&1; then
+  info "Intel Pack: installing Tavily CLI..."
+  bash -lc 'curl -fsSL https://cli.tavily.com/install.sh | bash' 2>/dev/null || true
+fi
+
+info "Intel Pack: installing Tavily skills..."
+npx -y skills add tavily-ai/skills --all 2>/dev/null || true
+
+info "Intel Pack: installing VoltAgent subagents..."
+VOLT_DIR="$TMPDIR_INTEL/awesome-claude-code-subagents"
+if git clone --depth 1 https://github.com/VoltAgent/awesome-claude-code-subagents.git "$VOLT_DIR" 2>/dev/null; then
+  count=0
+  mkdir -p "$HOME/.claude/agents"
+  for agent_file in "$VOLT_DIR"/*.md; do
+    [ -f "$agent_file" ] || continue
+    name="$(basename "$agent_file")"
+    [ "$name" = "README.md" ] && continue
+    head -c 200 "$agent_file" | grep -q "^---" || continue
+    target="$HOME/.claude/agents/$name"
+    [ -f "$target" ] && target="$HOME/.claude/agents/voltagent-$name"
+    cp "$agent_file" "$target"
+    count=$((count + 1))
+  done
+  ok "Intel Pack: $count VoltAgent subagents installed"
+fi
+
+info "Intel Pack: installing community slash commands..."
+WS_DIR="$TMPDIR_INTEL/wshobson-commands"
+if git clone --depth 1 https://github.com/wshobson/commands.git "$WS_DIR" 2>/dev/null; then
+  count=0
+  mkdir -p "$HOME/.claude/commands/community"
+  for cmd_file in "$WS_DIR"/*.md; do
+    [ -f "$cmd_file" ] || continue
+    name="$(basename "$cmd_file")"
+    [ "$name" = "README.md" ] && continue
+    head -c 200 "$cmd_file" | grep -q "^---" || continue
+    target="$HOME/.claude/commands/community/$name"
+    [ -f "$target" ] && target="$HOME/.claude/commands/community/ws-$name"
+    cp "$cmd_file" "$target"
+    count=$((count + 1))
+  done
+  ok "Intel Pack: $count community commands installed"
+fi
+
+trap - EXIT
+rm -rf "$TMPDIR_INTEL"
+
+ok "Intel Pack: full intelligence pack installed"
+else
+  info "Intel Pack: skipped (--skip-intel)"
+fi
+
 ok "Done."
 echo ""
 echo "Next commands:"
@@ -1193,3 +1399,13 @@ echo "  pkill -f 'claude' || true"
 echo "  rm -f ~/.claude/cache/gateway-models.json"
 echo "  source ~/.config/oc-go-cc/env"
 echo "  start-oc-go-cc"
+echo ""
+echo "Intel Pack commands (if --full-intel was enabled):"
+echo ""
+echo "  /tech-radar     AI, software, and GitHub intelligence brief"
+echo "  /repo-radar     New and trending GitHub repos"
+echo "  /dev-news       Daily software engineering news"
+echo ""
+echo "To skip Intel Pack on re-run:"
+echo ""
+echo "  ./setup-claude-opencode-go-personalized.sh --skip-intel ..."
