@@ -50,7 +50,6 @@ DEEPSEEK_ONLY="0"
 SKIP_INSTALL="0"
 NO_UPDATE_SOURCE="0"
 FULL_INTEL="${FULL_INTEL:-1}"
-FULL_PLUS_INTEL="${FULL_PLUS_INTEL:-1}"
 
 fail() { printf "\033[1;31mERROR:\033[0m %s\n" "$*" >&2; exit 1; }
 warn() { printf "\033[1;33mWARN:\033[0m %s\n" "$*" >&2; }
@@ -74,10 +73,6 @@ Options:
   --full-intel          Install full intelligence pack (plugins, MCP, Tavily, commands).
                         (default: enabled)
   --skip-intel          Skip full intelligence pack installation.
-  --full-plus-intel     Install maximal Claude Code pack: ECC, UI/UX Pro Max,
-                        Claude Design Skillstack, Mindrally skills, shadcn MCP.
-                        (default: enabled)
-  --skip-full-plus      Skip maximal add-on pack while keeping normal full-intel.
   -h, --help            Show help.
 
 Source repo:
@@ -143,15 +138,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --skip-intel|--no-intel)
       FULL_INTEL="0"
-      shift
-      ;;
-    --full-plus-intel|--mega-intel|--max-intel)
-      FULL_PLUS_INTEL="1"
-      FULL_INTEL="1"
-      shift
-      ;;
-    --skip-full-plus|--no-full-plus|--no-mega-intel)
-      FULL_PLUS_INTEL="0"
       shift
       ;;
     -h|--help)
@@ -1272,38 +1258,6 @@ PYEOF
 ROUTINGEOF
 chmod +x "$INSTALL_DIR/ocgo-routing-doctor"
 
-cat > "$INSTALL_DIR/claude-fullplus-doctor" <<'FULLPLUSDOCTOR'
-#!/usr/bin/env bash
-set -euo pipefail
-CLAUDE_HOME="${HOME}/.claude"
-echo "============================================================"
-echo "CLAUDE FULL+ DOCTOR"
-echo "============================================================"
-echo "Claude CLI: $(command -v claude 2>/dev/null || echo '<not found>')"
-echo "oc-go-cc  : $(command -v oc-go-cc 2>/dev/null || echo '<not found>')"
-echo ""
-for d in agents commands skills rules output-styles themes templates; do
-  path="$CLAUDE_HOME/$d"
-  if [[ -d "$path" ]]; then
-    count="$(find "$path" -mindepth 1 -maxdepth 2 2>/dev/null | wc -l | tr -d ' ')"
-    echo "${d}: ${count} entries"
-  else
-    echo "${d}: <missing>"
-  fi
-done
-echo ""
-echo "Expected high-value files:"
-for f in \
-  "$CLAUDE_HOME/output-styles/truth-gated-coder.md" \
-  "$CLAUDE_HOME/statusline.sh" \
-  "$CLAUDE_HOME/templates/shadcn-mcp.json"; do
-  [[ -e "$f" ]] && echo "OK   $f" || echo "MISS $f"
-done
-echo ""
-echo "Run ocgo-routing-doctor for routing validation."
-FULLPLUSDOCTOR
-chmod +x "$INSTALL_DIR/claude-fullplus-doctor"
-
 info "Validating oc-go-cc config..."
 if command -v oc-go-cc >/dev/null 2>&1; then
   source "$OC_CONFIG_DIR/env"
@@ -1317,144 +1271,6 @@ if [[ "$FULL_INTEL" == "1" ]]; then
 
 TMPDIR_INTEL="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR_INTEL"' EXIT
-
-# Full+ mode intentionally installs broad Claude Code capability packs.
-# Every command is best-effort/idempotent: a failed marketplace, plugin, or clone
-# logs a warning and continues, so the core oc-go-cc install still completes.
-install_claude_plugin_best_effort() {
-  local plugin="$1"
-  if command -v claude >/dev/null 2>&1; then
-    claude plugin install "$plugin" --scope user 2>/dev/null || \
-      claude plugin install "$plugin" 2>/dev/null || \
-      warn "Full+ Intel: plugin install failed or already unavailable: $plugin"
-  else
-    warn "Full+ Intel: Claude CLI not found; could not install plugin: $plugin"
-  fi
-}
-
-add_claude_marketplace_best_effort() {
-  local marketplace="$1"
-  if command -v claude >/dev/null 2>&1; then
-    claude plugin marketplace add "$marketplace" 2>/dev/null || \
-      warn "Full+ Intel: marketplace add failed or already exists: $marketplace"
-  else
-    warn "Full+ Intel: Claude CLI not found; could not add marketplace: $marketplace"
-  fi
-}
-
-if [[ "${FULL_PLUS_INTEL:-1}" == "1" ]]; then
-  info "Full+ Intel: installing maximal Claude Code pack..."
-
-  # 1) ECC / Everything Claude Code — broad agent/skill/hook/rule harness.
-  add_claude_marketplace_best_effort "https://github.com/affaan-m/ECC"
-  install_claude_plugin_best_effort "ecc@ecc"
-
-  ECC_DIR="$TMPDIR_INTEL/ECC"
-  if git clone --depth 1 https://github.com/affaan-m/ECC.git "$ECC_DIR" 2>/dev/null; then
-    mkdir -p "$HOME/.claude/rules/ecc"
-    if [[ -d "$ECC_DIR/rules" ]]; then
-      cp -R "$ECC_DIR/rules/"* "$HOME/.claude/rules/ecc/" 2>/dev/null || true
-      ok "Full+ Intel: ECC rules copied to ~/.claude/rules/ecc"
-    fi
-  else
-    warn "Full+ Intel: could not clone ECC for manual rules copy"
-  fi
-
-  # 2) UI/UX Pro Max — design intelligence, React/Next/shadcn/Tailwind UI guidance.
-  add_claude_marketplace_best_effort "nextlevelbuilder/ui-ux-pro-max-skill"
-  install_claude_plugin_best_effort "ui-ux-pro-max@ui-ux-pro-max-skill"
-
-  if command -v npm >/dev/null 2>&1; then
-    npm install -g uipro-cli 2>/dev/null || warn "Full+ Intel: npm install -g uipro-cli failed"
-    if command -v uipro >/dev/null 2>&1; then
-      uipro init --ai claude --global 2>/dev/null || warn "Full+ Intel: uipro global Claude install failed"
-    fi
-  else
-    warn "Full+ Intel: npm not found; skipped uipro-cli installer"
-  fi
-
-  # 3) Claude Design Skillstack — Framer Motion, GSAP, R3F, 3D, animation, modern web design.
-  add_claude_marketplace_best_effort "freshtechbro/claudedesignskills"
-  for plugin in \
-    core-3d-animation \
-    extended-3d-scroll \
-    animation-components \
-    authoring-motion \
-    meta-skills \
-    motion-framer \
-    modern-web-design \
-    gsap-scrolltrigger \
-    react-three-fiber \
-    threejs-webgl; do
-    install_claude_plugin_best_effort "$plugin"
-  done
-
-  DESIGN_DIR="$TMPDIR_INTEL/claudedesignskills"
-  if git clone --depth 1 https://github.com/freshtechbro/claudedesignskills.git "$DESIGN_DIR" 2>/dev/null; then
-    mkdir -p "$HOME/.claude/skills"
-    if [[ -d "$DESIGN_DIR/.claude/skills" ]]; then
-      cp -R "$DESIGN_DIR/.claude/skills/"* "$HOME/.claude/skills/" 2>/dev/null || true
-      ok "Full+ Intel: Claude Design skills copied to ~/.claude/skills"
-    fi
-  else
-    warn "Full+ Intel: could not clone Claude Design Skillstack"
-  fi
-
-  # 4) Mindrally skills — huge cross-stack skill library for React, TS, Python, Tailwind, etc.
-  MINDRALLY_DIR="$TMPDIR_INTEL/mindrally-skills"
-  if git clone --depth 1 https://github.com/Mindrally/skills.git "$MINDRALLY_DIR" 2>/dev/null; then
-    mkdir -p "$HOME/.claude/skills"
-    if [[ -d "$MINDRALLY_DIR/skills" ]]; then
-      cp -R "$MINDRALLY_DIR/skills/"* "$HOME/.claude/skills/" 2>/dev/null || true
-      ok "Full+ Intel: Mindrally skills copied to ~/.claude/skills"
-    fi
-  else
-    warn "Full+ Intel: could not clone Mindrally skills"
-  fi
-
-  # 5) shadcn/ui MCP — project-level .mcp.json template for component registry access.
-  # Claude Code reads project .mcp.json. We keep a global template and a helper command
-  # because blindly overwriting every project's .mcp.json would be hostile.
-  mkdir -p "$HOME/.claude/templates"
-  cat > "$HOME/.claude/templates/shadcn-mcp.json" <<'SHADCNMCP'
-{
-  "mcpServers": {
-    "shadcn": {
-      "command": "npx",
-      "args": ["shadcn@latest", "mcp"]
-    }
-  }
-}
-SHADCNMCP
-
-  cat > "$INSTALL_DIR/install-shadcn-mcp-here" <<'SHADCNHELPER'
-#!/usr/bin/env bash
-set -Eeuo pipefail
-if [[ -f .mcp.json ]]; then
-  cp .mcp.json ".mcp.json.bak.$(date +%Y%m%d-%H%M%S)"
-fi
-python3 <<'PYSHADCN'
-import json
-from pathlib import Path
-p=Path('.mcp.json')
-try:
-    data=json.loads(p.read_text()) if p.exists() else {}
-    if not isinstance(data, dict):
-        data={}
-except Exception:
-    data={}
-servers=data.setdefault('mcpServers', {})
-servers['shadcn']={'command':'npx','args':['shadcn@latest','mcp']}
-p.write_text(json.dumps(data, indent=2)+'\n')
-print('Wrote/updated .mcp.json with shadcn MCP server')
-PYSHADCN
-SHADCNHELPER
-  chmod +x "$INSTALL_DIR/install-shadcn-mcp-here"
-
-  ok "Full+ Intel: maximal Claude Code pack attempted"
-else
-  info "Full+ Intel: skipped (--skip-full-plus)"
-fi
 
 info "Intel Pack: registering plugin marketplaces..."
 claude plugin marketplace add anthropics/claude-plugins-official 2>/dev/null || true
@@ -1570,7 +1386,6 @@ echo ""
 echo "Verify routing table:"
 echo ""
 echo "  ocgo-routing-doctor"
-echo "  claude-fullplus-doctor"
 echo ""
 echo "For Claude Desktop on macOS:"
 echo ""
@@ -1590,11 +1405,6 @@ echo ""
 echo "  /tech-radar     AI, software, and GitHub intelligence brief"
 echo "  /repo-radar     New and trending GitHub repos"
 echo "  /dev-news       Daily software engineering news"
-echo ""
-echo "Full+ helper commands:"
-echo ""
-echo "  claude-fullplus-doctor       Count/check installed agents, skills, rules, commands"
-echo "  install-shadcn-mcp-here      Add shadcn MCP to the current project's .mcp.json"
 echo ""
 echo "To skip Intel Pack on re-run:"
 echo ""
