@@ -57,6 +57,40 @@ warn() { printf "\033[1;33mWARN:\033[0m %s\n" "$*" >&2; }
 info() { printf "\033[1;34m%s\033[0m\n" "$*"; }
 ok() { printf "\033[1;32m%s\033[0m\n" "$*"; }
 
+# ── Serena: disable web dashboard and dashboard-on-launch ───────────────
+configure_serena() {
+  local config_dir="$HOME/.serena"
+  local config_file="$config_dir/serena_config.yml"
+
+  mkdir -p "$config_dir"
+
+  python3 -c "
+from pathlib import Path
+p = Path('$config_file')
+lines = p.read_text(errors='replace').splitlines() if p.exists() else []
+out = []
+web_dash = False
+web_launch = False
+for line in lines:
+    stripped = line.strip()
+    if stripped.startswith('web_dashboard:') and not stripped.startswith('#'):
+        out.append('web_dashboard: false')
+        web_dash = True
+    elif stripped.startswith('web_dashboard_open_on_launch:') and not stripped.startswith('#'):
+        out.append('web_dashboard_open_on_launch: false')
+        web_launch = True
+    else:
+        out.append(line)
+if not web_dash:
+    out.append('web_dashboard: false')
+if not web_launch:
+    out.append('web_dashboard_open_on_launch: false')
+p.write_text('\n'.join(out).rstrip() + '\n')
+print('Updated ' + str(p))
+"
+  ok "Serena: web dashboard disabled (no server, no launch tab)"
+}
+
 usage() {
   cat <<'EOF'
 Usage:
@@ -441,7 +475,7 @@ fallback = model_ids[0]
 # Slot mapping is explicit and deterministic — does NOT depend on live model availability.
 # Each Claude Code picker slot is bound to one exact backend model_id.
 SLOT_MODEL_MAP = {
-    "fable": "minimax-m3",
+    "fable": "deepseek-v4-pro",
     "opus": "deepseek-v4-pro",
     "sonnet": "kimi-k2.7-code",
     "haiku": "deepseek-v4-flash",
@@ -450,7 +484,7 @@ SLOT_MODEL_MAP = {
 
 # Visible display names for the Claude Code picker.
 SLOT_VISIBLE_NAME = {
-    "fable": "MiniMax M3",
+    "fable": "DeepSeek V4 Pro",
     "opus": "DeepSeek V4 Pro",
     "sonnet": "Kimi K2.7 Code",
     "haiku": "DeepSeek V4 Flash",
@@ -488,7 +522,7 @@ BUILTIN_MODEL_MAP = {
     "claude-sonnet-4-6": "kimi-k2.7-code",
     "claude-sonnet-4-5": "kimi-k2.7-code",
     "claude-haiku-4-5-20251001": "deepseek-v4-flash",
-    "claude-fable-5": "minimax-m3",
+    "claude-fable-5": "deepseek-v4-pro",
 }
 for name, target_id in BUILTIN_MODEL_MAP.items():
     model_overrides[name] = model_cfg(target_id)
@@ -719,6 +753,8 @@ Final answer for coding tasks must include:
 - commands run
 - pass/fail evidence
 - known limitations
+
+# Serena: web dashboard fully disabled (web_dashboard: false, no server or launch tab)
 <!-- <<< claude-opencode-go-personalization <<< -->
 '''
 
@@ -1087,6 +1123,8 @@ print(f"  haiku  -> {haiku_model}")
 print(f"  custom -> {custom_model}")
 PY
 
+configure_serena
+
 info "Creating launcher commands..."
 
 cat > "$INSTALL_DIR/start-oc-go-cc" <<EOF
@@ -1111,8 +1149,8 @@ export CLAUDE_CODE_ALWAYS_ENABLE_EFFORT="1"
 export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS="1"
 
 # 5-slot model env vars (deterministic — do not rely on settings.json alone).
-export ANTHROPIC_DEFAULT_FABLE_MODEL="claude-ocgo-minimax-m3"
-export ANTHROPIC_DEFAULT_FABLE_MODEL_NAME="MiniMax M3 · minimax-m3"
+export ANTHROPIC_DEFAULT_FABLE_MODEL="claude-ocgo-deepseek-v4-pro"
+export ANTHROPIC_DEFAULT_FABLE_MODEL_NAME="DeepSeek V4 Pro · deepseek-v4-pro"
 export ANTHROPIC_DEFAULT_OPUS_MODEL="claude-ocgo-deepseek-v4-pro"
 export ANTHROPIC_DEFAULT_OPUS_MODEL_NAME="DeepSeek V4 Pro · deepseek-v4-pro"
 export ANTHROPIC_DEFAULT_SONNET_MODEL="claude-ocgo-kimi-k2-7-code"
@@ -1180,7 +1218,6 @@ mo = cfg.get("model_overrides", {})
 
 # The 5 desired Claude Code picker slots -> exact backend model_id.
 REQUIRED_ALIASES = {
-    "claude-ocgo-minimax-m3": "minimax-m3",
     "claude-ocgo-deepseek-v4-pro": "deepseek-v4-pro",
     "claude-ocgo-kimi-k2-7-code": "kimi-k2.7-code",
     "claude-ocgo-qwen3-7-plus": "qwen3.7-plus",
@@ -1197,7 +1234,7 @@ REQUIRED_MODELS_SLOTS = {
 }
 
 REQUIRED_SETTINGS_ENV = {
-    "ANTHROPIC_DEFAULT_FABLE_MODEL": "claude-ocgo-minimax-m3",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL": "claude-ocgo-deepseek-v4-pro",
     "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-ocgo-deepseek-v4-pro",
     "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-ocgo-kimi-k2-7-code",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-ocgo-deepseek-v4-flash",
