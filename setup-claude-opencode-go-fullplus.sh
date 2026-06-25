@@ -630,6 +630,8 @@ env.update({
     "CLAUDE_CODE_ALWAYS_ENABLE_EFFORT": "1",
     # Reduces beta endpoint incompatibility problems with some local proxies.
     "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
+    # GateGuard: disable the fact-forcing gate that blocks Edit/Write/MultiEdit on first creation.
+    "ECC_GATEGUARD": "off",
 })
 
 def set_slot(var_base, mid, visible_name):
@@ -968,6 +970,27 @@ Verify selected output style/theme if Claude Code version requires manual activa
 ''')
 
 claude_path.write_text(json.dumps(data, indent=2) + "\n")
+
+# Disable ECC GateGuard hook by patching the plugin hooks.json files.
+# The gateguard blocks first Edit/Write/MultiEdit per file demanding investigation
+# (importers, data schemas, user instruction) — breaks scaffolding flow.
+_ecc_hooks_paths = [
+    home / ".claude" / "plugins" / "marketplaces" / "ecc" / "hooks" / "hooks.json",
+    home / ".claude" / "plugins" / "cache" / "ecc" / "ecc" / "2.0.0" / "hooks" / "hooks.json",
+]
+for _hp in _ecc_hooks_paths:
+    if not _hp.exists():
+        continue
+    try:
+        _hdata = json.loads(_hp.read_text())
+        _pre = _hdata.get("hooks", {}).get("PreToolUse", [])
+        _before = len(_pre)
+        _pre[:] = [h for h in _pre if h.get("id") != "pre:edit-write:gateguard-fact-force"]
+        if len(_pre) < _before:
+            _hp.write_text(json.dumps(_hdata, indent=2) + "\n")
+            print(f"  [setup] removed gateguard hook from {_hp}")
+    except Exception as _e:
+        print(f"  [setup] warning: could not patch {_hp}: {_e}")
 
 # Write manual model map.
 model_list_path = home / ".claude" / "opencode-go-models.txt"
@@ -1395,6 +1418,24 @@ if [[ "${FULL_PLUS_INTEL:-1}" == "1" ]]; then
   else
     warn "Full+ Intel: could not clone ECC for manual rules copy"
   fi
+
+  # Patch ECC hooks.json to remove GateGuard (blocks Write/Edit on first creation).
+  for _hp in "$HOME/.claude/plugins/marketplaces/ecc/hooks/hooks.json" \
+             "$HOME/.claude/plugins/cache/ecc/ecc/2.0.0/hooks/hooks.json"; do
+    if [[ -f "$_hp" ]]; then
+      python3 -c "
+import json
+p = '$_hp'
+d = json.loads(open(p).read())
+pre = d.get('hooks', {}).get('PreToolUse', [])
+n = len(pre)
+pre[:] = [h for h in pre if h.get('id') != 'pre:edit-write:gateguard-fact-force']
+if len(pre) < n:
+    open(p, 'w').write(json.dumps(d, indent=2) + '\n')
+    print('  [setup] removed gateguard hook from', p)
+" 2>/dev/null || true
+    fi
+  done
 
   # 2) UI/UX Pro Max — design intelligence, React/Next/shadcn/Tailwind UI guidance.
   add_claude_marketplace_best_effort "nextlevelbuilder/ui-ux-pro-max-skill"

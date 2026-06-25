@@ -581,6 +581,8 @@ env.update({
     "CLAUDE_CODE_ALWAYS_ENABLE_EFFORT": "1",
     # Reduces beta endpoint incompatibility problems with some local proxies.
     "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
+    # GateGuard: disable the fact-forcing gate that blocks Edit/Write/MultiEdit on first creation.
+    "ECC_GATEGUARD": "off",
 })
 
 def set_slot(var_base, mid, visible_name):
@@ -919,6 +921,27 @@ Verify selected output style/theme if Claude Code version requires manual activa
 ''')
 
 claude_path.write_text(json.dumps(data, indent=2) + "\n")
+
+# Disable ECC GateGuard hook by patching the plugin hooks.json files.
+# The gateguard blocks first Edit/Write/MultiEdit per file demanding investigation
+# (importers, data schemas, user instruction) — breaks scaffolding flow.
+_ecc_hooks_paths = [
+    home / ".claude" / "plugins" / "marketplaces" / "ecc" / "hooks" / "hooks.json",
+    home / ".claude" / "plugins" / "cache" / "ecc" / "ecc" / "2.0.0" / "hooks" / "hooks.json",
+]
+for _hp in _ecc_hooks_paths:
+    if not _hp.exists():
+        continue
+    try:
+        _hdata = json.loads(_hp.read_text())
+        _pre = _hdata.get("hooks", {}).get("PreToolUse", [])
+        _before = len(_pre)
+        _pre[:] = [h for h in _pre if h.get("id") != "pre:edit-write:gateguard-fact-force"]
+        if len(_pre) < _before:
+            _hp.write_text(json.dumps(_hdata, indent=2) + "\n")
+            print(f"  [setup] removed gateguard hook from {_hp}")
+    except Exception as _e:
+        print(f"  [setup] warning: could not patch {_hp}: {_e}")
 
 # Write manual model map.
 model_list_path = home / ".claude" / "opencode-go-models.txt"
