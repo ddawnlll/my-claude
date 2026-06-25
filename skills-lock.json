@@ -48,6 +48,18 @@
       "sourceType": "github",
       "skillPath": "skills/tavily-search/SKILL.md",
       "computedHash": "bda6e90a41addbe0f8750a38aebdf59c5bdc8514d23aaf2015ffe45de6958b74"
+    },
+    "premium-frontend-director": {
+      "source": "local/premium-frontend-director",
+      "sourceType": "local",
+      "skillPath": "skills/premium-frontend-director/SKILL.md",
+      "computedHash": "aa369b03d5d2866c82568efb6b7d58f7e9d3d7f3bba0019ed12f89f872f6610c"
+    },
+    "kayrae-premium-saas-stylepack": {
+      "source": "local/kayrae-premium-saas-stylepack",
+      "sourceType": "local",
+      "skillPath": "skills/kayrae-premium-saas-stylepack/SKILL.md",
+      "computedHash": "94f1432ec322828a4c1b7a5549970742c9d578e9f25ddbad21342b42d9752524"
     }
   }
 }
