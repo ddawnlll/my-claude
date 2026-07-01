@@ -1029,7 +1029,7 @@ description: AI, software engineering, developer tooling, and GitHub repository 
 argument-hint: [optional focus, e.g. coding agents, Rust CLI tools, React, MCP, databases]
 ---
 
-Use Tavily MCP first. Do not use built-in WebSearch for general search. Use GitHub MCP or gh CLI only when available and useful. Use WebFetch only for specific URLs after discovery.
+Use MCP search tools in this order: parallel-search (anahtarsız, HTTP) → duckduckgo-search (anahtarsız) → exa (key gerekir). Do NOT use Tavily unless every other tool failed. Do not use built-in WebSearch for general search. Use GitHub MCP or gh CLI only when available and useful. Use WebFetch only for specific URLs after discovery.
 
 You are my Tech Radar Intelligence Agent.
 
@@ -1044,7 +1044,7 @@ Default scope:
 User focus: $ARGUMENTS
 
 Research workflow:
-1. Search broadly with Tavily: latest AI news, latest software development news, GitHub trending, new repos, releases, changelogs, official blogs, Hacker News (secondary)
+1. Search broadly with parallel-search (HTTP, anahtarsız) first, then duckduckgo-search (anahtarsız), then exa (semantik) if needed: latest AI news, latest software development news, GitHub trending, new repos, releases, changelogs, official blogs, Hacker News (secondary)
 2. For GitHub discovery: GitHub Trending, recently created repos, meaningful README/code, active issues/releases, avoid toy repos and SEO spam
 3. Extract important sources. Do not summarize headlines only. De-duplicate.
 4. Classify each item: Importance (Critical/High/Medium/Low), Category (AI/CodingAgent/DevTool/Library/Framework/Infra/Security/Research/Business), Maturity (Production-ready/Promising/Experimental/Hype/Avoid), Confidence (High/Medium/Low)
@@ -1060,7 +1060,7 @@ description: Discover high-signal new and trending GitHub repositories
 argument-hint: [topic/language/category]
 ---
 
-Use Tavily MCP first. Use GitHub MCP or gh CLI when available. Do not use built-in WebSearch.
+Use parallel-search (anahtarsız, HTTP) or duckduckgo-search (anahtarsız) first. Use GitHub MCP or gh CLI when available. Do NOT use Tavily unless everything else failed. Do not use built-in WebSearch.
 
 Mission: Find genuinely useful new, trending, or fast-growing GitHub repositories for the requested topic.
 
@@ -1081,7 +1081,7 @@ description: Daily software development news and engineering trend brief
 argument-hint: [optional focus]
 ---
 
-Use Tavily MCP first. Do not use built-in WebSearch.
+Use parallel-search (anahtarsız, HTTP) or duckduckgo-search (anahtarsız) for research. Do NOT use Tavily unless every other tool failed. Do not use built-in WebSearch.
 
 Create a concise but deep daily software engineering brief. Include: framework/library releases, language/runtime updates, security advisories, database/backend tooling, frontend/UI tooling, developer experience tools, GitHub projects worth tracking, AI tools only when they affect software development.
 
@@ -1099,16 +1099,43 @@ routing_block = '''\
 
 For current information, web search, news, GitHub discovery, software trend monitoring, package/version lookup, benchmark lookup, and public source discovery:
 
-1. Use Tavily MCP first.
-2. Use Tavily search/extract/crawl/map/research skills when available.
-3. Use GitHub MCP or gh CLI for GitHub-specific repo/issue/release inspection when available.
-4. Do not use built-in WebSearch for general discovery.
-5. Use WebFetch only for specific URLs after discovery.
-6. Prefer primary sources: official docs, release notes, GitHub repos/releases/issues, arXiv/papers, vendor blogs.
-7. Treat community posts and SEO articles as secondary signal.
-8. For GitHub repo recommendations, evaluate usefulness, maintenance, code quality signal, novelty, and hype risk.
-9. Always separate signal from noise.
-10. Use Turkish by default.
+**MCP Araç Katmanları (hızlıdan yavaşa, anahtarsızdan anahtarlıya):**
+
+Katman 1 — Anlık arama (API anahtarı gerekmez):
+- `parallel-search` → web_search, web_fetch (anahtarsız, HTTP, hızlı)
+- `context7` → güncel dokümantasyon (resolve-library-id, query-docs)
+
+Katman 2 — Web arama (API anahtarı gerekmez):
+- `duckduckgo-search` → duckduckgo_search (anahtarsız, ayda 15.000 sorgu)
+- `arxiv` → arxiv_search (akademik makale, anahtarsız)
+- `exa` → exa_search (semantik arama, ücretsiz API anahtarı gerekir)
+
+Katman 3 — İçerik okuma (API anahtarı gerekir):
+- `firecrawl` → firecrawl_scrape, firecrawl_extract, firecrawl_crawl, firecrawl_research (sayfa/PDF → Markdown)
+
+**KATMAN 4 — TAVİLY KULLANIM YASAĞI:**
+⚠️ Zorunlu olmadıkça Tavily MCP KULLANMA. Tavily en son çaredir.
+Tavily'nin kullanılabileceği TEK durum: diğer tüm araçlar (parallel-search, duckduckgo-search, exa, firecrawl) yetersiz kaldıysa ve gerçekten derin araştırma gerekiyorsa.
+- `tavily_search`, `tavily_extract`, `tavily_crawl`, `tavily_map` — KULLANMA
+- `tavily_research` — sadece son çare, diğer her şey denendiyse
+- `WebFetch` — tek URL okuma (firecrawl yoksa)
+- `WebSearch` — kesinlikle son çare
+
+**Kullanım sırası (kesin):**
+1. `parallel-search` (anahtarsız, HTTP) — her şeyden önce dene
+2. `duckduckgo-search` (anahtarsız) — genel web arama
+3. `arxiv` (anahtarsız) — akademik makale
+4. `exa` (key gerekir) — semantik/kaliteli arama
+5. `firecrawl` (key gerekir) — sayfa/PDF içeriğini oku
+6. `context7` — dokümantasyon
+7. GitHub MCP / `gh` CLI — GitHub işlemleri
+8. Tavily (`tavily_research`) — ANCAK diğer her şey başarısız olduysa
+9. `WebFetch` / `WebSearch` — son çare
+10. Prefer primary sources: official docs, release notes, GitHub repos/releases/issues, arXiv/papers, vendor blogs.
+11. Treat community posts and SEO articles as secondary signal.
+12. For GitHub repo recommendations, evaluate usefulness, maintenance, code quality signal, novelty, and hype risk.
+13. Always separate signal from noise.
+14. Use Turkish by default.
 
 Preferred custom commands:
 - /tech-radar for AI + software + GitHub overall intelligence
@@ -1144,6 +1171,70 @@ print(f"  sonnet -> {sonnet_model}")
 print(f"  haiku  -> {haiku_model}")
 print(f"  custom -> {custom_model}")
 PY
+
+# ── Write MCP server configuration ────────────────────────────────────
+info "Writing MCP server configuration..."
+python3 <<'MCPPY'
+import json, os
+from pathlib import Path
+
+claude_dir = Path.home() / ".claude"
+mcp_path = claude_dir / "mcp.json"
+
+firecrawl_key = os.environ.get("FIRECRAWL_API_KEY", "")
+exa_key = os.environ.get("EXA_API_KEY", "")
+
+mcp_config = {
+    "mcpServers": {
+        "context7": {
+            "command": "npx",
+            "args": ["@upstash/context7-mcp@latest"],
+            "description": "Güncel dokümantasyon — framework, kütüphane, API dökümanlarını anında getirir"
+        },
+        "memory": {
+            "command": "npx",
+            "args": ["@modelcontextprotocol/server-memory"],
+            "description": "Kalıcı hafıza — Claude oturumlar arası hatırlar"
+        },
+        "sequential-thinking": {
+            "command": "npx",
+            "args": ["@modelcontextprotocol/server-sequential-thinking"],
+            "description": "Karmaşık mantık yürütme — adım adım düşünme"
+        },
+        "arxiv": {
+            "command": "npx",
+            "args": ["@cyanheads/arxiv-mcp-server"],
+            "description": "Akademik makale arama — arXiv'de makale bulur, metadata ve PDF okur"
+        },
+        "parallel-search": {
+            "type": "http",
+            "url": "https://search.parallel.ai/mcp",
+            "description": "Web arama — API anahtarı gerektirmez, hızlı sonuç döndürür"
+        },
+        "duckduckgo-search": {
+            "command": "npx",
+            "args": ["duckduckgo-mcp-server"],
+            "description": "DuckDuckGo web arama — tamamen ücretsiz, API anahtarı gerekmez"
+        },
+        "firecrawl": {
+            "command": "npx",
+            "args": ["firecrawl-mcp"],
+            "env": {"FIRECRAWL_API_KEY": firecrawl_key} if firecrawl_key else {},
+            "description": "Web scrape + PDF okuma — sayfaları Markdown'a çevirir (ücretsiz: https://firecrawl.dev)"
+        },
+        "exa": {
+            "command": "npx",
+            "args": ["exa-mcp-server"],
+            "env": {"EXA_API_KEY": exa_key} if exa_key else {},
+            "description": "Semantik arama — akademik ve teknik içerikte en kaliteli sonuç (ücretsiz: https://exa.ai)"
+        }
+    }
+}
+
+mcp_path.write_text(json.dumps(mcp_config, indent=2) + "\n")
+print(f"  {mcp_path}")
+MCPPY
+ok "MCP configuration written to ~/.claude/mcp.json"
 
 configure_serena
 
@@ -1557,20 +1648,28 @@ else
   warn "Intel Pack: could not clone plugin marketplace (skipping)"
 fi
 
-info "Intel Pack: installing Tavily MCP..."
+info "Intel Pack: installing research MCPs (Tavily: last resort only)..."
+# Research MCP stack: parallel-search, duckduckgo-search, arxiv, context7, memory,
+# sequential-thinking, firecrawl, exa — all configured via ~/.claude/mcp.json
+# (written earlier by this script's Python block).
+
+# Parallel Search MCP (HTTP, anahtarsız)
+if ! claude mcp list 2>/dev/null | grep -iq "parallel-search"; then
+  claude mcp add parallel-search --scope user --transport http https://search.parallel.ai/mcp 2>/dev/null || \
+    warn "Intel Pack: parallel-search MCP could not be added (may already exist)"
+fi
+
+# Tavily MCP (son çare — routing policy enforces this as last resort)
 if ! claude mcp list 2>/dev/null | grep -iq "tavily"; then
   claude mcp add tavily-remote-mcp --scope user --transport http https://mcp.tavily.com/mcp/ 2>/dev/null && \
-    ok "Intel Pack: Tavily MCP added" || \
+    info "Intel Pack: Tavily MCP added (last resort only)" || \
     warn "Intel Pack: Tavily MCP failed (may need manual auth)"
 fi
 
 if ! command -v tvly >/dev/null 2>&1; then
-  info "Intel Pack: installing Tavily CLI..."
+  info "Intel Pack: installing Tavily CLI (optional)..."
   bash -lc 'curl -fsSL https://cli.tavily.com/install.sh | bash' 2>/dev/null || true
 fi
-
-info "Intel Pack: installing Tavily skills..."
-npx -y skills add tavily-ai/skills --all 2>/dev/null || true
 
 info "Intel Pack: installing VoltAgent subagents..."
 VOLT_DIR="$TMPDIR_INTEL/awesome-claude-code-subagents"
